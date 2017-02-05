@@ -1,0 +1,7 @@
+langauge: haskell
+
+install:
+  - cabal install --only-dependencies
+
+script:
+  - cabal install
