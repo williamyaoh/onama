@@ -12,11 +12,11 @@ name:                onama
 --                   | | | +--- code changes with no API change
 version:             0.1.0.0
 
--- A short (one-line) description of the package.
--- synopsis:
+synopsis: HTML-parsing primitives for Parsec.
 
 -- A longer description of the package.
--- description:
+description: Provides Parsec primitives for parsing various HTML entities.
+             Requires Parsec in order to use and combine them.
 
 -- The license under which the package is released.
 license:             BSD3
@@ -45,6 +45,10 @@ build-type:          Simple
 -- Constraint on the version of Cabal needed to build this package.
 cabal-version:       >=1.10
 
+-- Information about the package's version control system.
+source-repository head
+  type:     git
+  location: https://www.github.com/williamyaoh/onama/
 
 library
   -- Modules exported by the library.
@@ -57,7 +61,7 @@ library
   -- other-extensions:
 
   -- Other library packages from which modules are imported.
-  build-depends:       base
+  build-depends:       base >=4.8 && <4.9
                      , tagsoup
                      , parsec
 

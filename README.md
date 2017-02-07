@@ -1,4 +1,4 @@
-# Onama [![License](https://img.shields.io/badge/license-BSD--3-ff69b4.svg)](https://github.com/williamyaoh/onama/blob/master/LICENSE) [![Build Status](https://travis-ci.org/williamyaoh/onama.svg?branch=master)](https://travis-ci.org/williamyaoh/onama)
+# Onama [![License](https://img.shields.io/badge/license-BSD--3-ff69b4.svg)](https://github.com/williamyaoh/onama/blob/master/LICENSE)
 
 Defines some HTML primitive parsers to use with Parsec.
 
