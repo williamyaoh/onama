@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 {-|
   Module: Text.HTML.Onama
   Description: Parsec extended with functions to handle HTML parsing.
@@ -32,13 +34,6 @@ module Text.HTML.Onama
 
   , tag
   , satisfy
-  , tagOpen, tagOpenAny
-  , tagOpen_, tagOpenAny_
-  , tagClose , tagCloseAny
-  , tagClose_, tagCloseAny_
-
-  , tagText , tagTextAny
-  , text
   )
 where
 
@@ -62,6 +57,14 @@ import Text.Parsec
   , option, optionMaybe, optional
   , unknownError, sysUnExpectError, mergeErrorReply
   )
+
+import qualified Data.Sequence as S
+import Data.Sequence
+  ( (<|), (|>), (><) )
+
+import Data.String (IsString, fromString)
+
+import Data.Foldable (toList)
 
 type Position = (TS.Row, TS.Column)
 
@@ -102,6 +105,55 @@ updatePos pos tok _ =
                      TagText _ pos   -> pos
   in flip P.setSourceLine row $ flip P.setSourceColumn col $ pos
 
+tagName :: Tag str -> Maybe str
+tagName (TagOpen name _ _) = Just name
+tagName (TagClose name _ ) = Just name
+tagName _other             = Nothing
+
+data TagOpenSelector
+  = AnyOpenTag [AttrSelector]
+  | TagOpenSelector String [AttrSelector]
+
+data TagCloseSelector
+  = AnyCloseTag
+  | TagCloseSelector String
+
+instance IsString TagOpenSelector where
+  fromString str = TagOpenSelector str []
+
+instance IsString TagCloseSelector where
+  fromString = TagCloseSelector
+
+tagSelectorAttrs :: TagOpenSelector -> [AttrSelector]
+tagSelectorAttrs (AnyOpenTag attrs)        = attrs
+tagSelectorAttrs (TagOpenSelector _ attrs) = attrs
+
+newtype AttrName = AttrName String
+
+instance IsString AttrName where
+  fromString = AttrName
+
+data AttrValue
+  = AnyAttr
+  | AttrValue String
+
+instance IsString AttrValue where
+  fromString = AttrValue
+
+data AttrSelector = AttrSelector AttrName AttrValue
+
+instance IsString AttrSelector where
+  fromString str = AttrSelector (AttrName str) AnyAttr
+
+(@:) :: TagOpenSelector -> [AttrSelector] -> TagOpenSelector
+(@:) tagS attrS =
+  case tagS of
+    AnyOpenTag _           -> AnyOpenTag attrS
+    TagOpenSelector name _ -> TagOpenSelector name attrS
+
+(@=) :: AttrName -> AttrValue -> AttrSelector
+(@=) = AttrSelector
+
 -- | Primitive. Return the next input tag.
 --   All other primitive parsers should be implemented in terms of this.
 tag :: (Monad m, Show str) => P.ParsecT [Tag str] u m (Tag str)
@@ -113,77 +165,107 @@ satisfy :: (Monad m, Show str) => (Tag str -> Bool) -> P.ParsecT [Tag str] u m (
 satisfy f = P.tokenPrim show updatePos $ \tag ->
               if f tag then Just tag else Nothing
 
--- | Tag name should be lowercase.
---   Return the parsed tag.
-tagOpen_ :: (Monad m, Show str, Eq str) => str -> P.ParsecT [Tag str] u m (Tag str)
-tagOpen_ str = satisfy $ \tag ->
-  case tag of
-    TagOpen name _ _ -> str == name
-    _                -> False
+matchAttrValue :: StringLike str => str -> AttrValue -> Bool
+matchAttrValue val attrS = case attrS of
+  AnyAttr        -> True
+  AttrValue val' -> toString val == val'
 
--- | Tag name should be lowercase.
---   Skips over any text nodes in the HTML before attempting to parse
---   an open tag. Usually this is what you want. If not, use 'tagOpen_'.
-tagOpen :: (Monad m, Show str, Eq str) => str -> P.ParsecT [Tag str] u m (Tag str)
-tagOpen str = optional text >> tagOpen_ str
+tagOpen_ :: (Monad m, StringLike str, Show str)
+         => TagOpenSelector
+         -> P.ParsecT [Tag str] u m (Tag str)
+tagOpen_ tagS =
+  satisfy (\tag -> case tag of
+              TagOpen name attrs _ ->
+                let attrS = tagSelectorAttrs tagS in
+                  case tagS of
+                    AnyOpenTag _ -> matchAttrs attrS attrs
+                    TagOpenSelector name' _ ->
+                      toString name == name' && matchAttrs attrS attrs
+              _other               -> False)
+  <?> "Couldn't parse an open tag."
+  where matchAttrs attrS attrs =
+          all (\(AttrSelector (AttrName name) attrValS) ->
+                 case lookup (fromString name) attrs of
+                   Just val -> matchAttrValue val attrValS
+                   Nothing  -> False)
+              attrS
 
-tagOpenAny_ :: (Monad m, Show str) => P.ParsecT [Tag str] u m (Tag str)
-tagOpenAny_ = satisfy $ \tag ->
-  case tag of
-    TagOpen _ _ _ -> True
-    _             -> False
+tagOpen :: (Monad m, StringLike str, Show str)
+        => TagOpenSelector
+        -> P.ParsecT [Tag str] u m (Tag str)
+tagOpen tagS = optional tagText >> tagOpen_ tagS
 
--- | Skips over any text nodes in the HTML before attempting to parse
---   an open tag. Usually this is what you want. If not, use 'tagOpenAny_'.
-tagOpenAny :: (Monad m, Show str) => P.ParsecT [Tag str] u m (Tag str)
-tagOpenAny = optional text >> tagOpenAny_
+tagClose_ :: (Monad m, StringLike str, Show str)
+          => TagCloseSelector
+          -> P.ParsecT [Tag str] u m (Tag str)
+tagClose_ tagS =
+  satisfy (\tag -> case tag of
+              TagClose name _ ->
+                case tagS of
+                  AnyCloseTag            -> True
+                  TagCloseSelector name' -> toString name == name'
+              _other          -> False)
 
--- | Tag name should be lowercase.
---   Return the parsed tag.
-tagClose_ :: (Monad m, Show str, Eq str) => str -> P.ParsecT [Tag str] u m (Tag str)
-tagClose_ str = satisfy $ \tag ->
-  case tag of
-    TagClose name _ -> str == name
-    _               -> False
+tagClose :: (Monad m, StringLike str, Show str)
+         => TagCloseSelector
+         -> P.ParsecT [Tag str] u m (Tag str)
+tagClose tagS = optional tagText >> tagClose_ tagS
 
--- | Tag name should be lowercase.
---   Skips over any text nodes in the HTML before attempting to parse
---   a close tag. Usually this is what you want. If not, use 'tagClose_'.
-tagClose :: (Monad m, Show str, Eq str) => str -> P.ParsecT [Tag str] u m (Tag str)
-tagClose str = optional text >> tagClose_ str
+-- | Take a parser, return a parser which only succeeds if the given parser
+--   fails. Consumes no input.
+notParse :: P.Stream s m t => P.ParsecT s u m t -> P.ParsecT s u m ()
+notParse parser = do
+  parsed <-     try $ Just <$> parser
+            <|> return Nothing
+  case parsed of
+    Nothing -> return ()
+    Just _  -> unexpected "parser given to notParse succeeded"
 
-tagCloseAny_ :: (Monad m, Show str) => P.ParsecT [Tag str] u m (Tag str)
-tagCloseAny_ = satisfy $ \tag ->
-  case tag of
-    TagClose _ _ -> True
-    _            -> False
+tagText :: (Monad m, Show str) => P.ParsecT [Tag str] u m str
+tagText = P.tokenPrim show updatePos $ \tag -> case tag of
+  TagText text _ -> Just text
+  _other         -> Nothing
 
--- | Skips over any text nodes in the HTML before attempting to parse
---   a close tag. Usually this is what you want. If not, use 'tagCloseAny_'.
-tagCloseAny :: (Monad m, Show str) => P.ParsecT [Tag str] u m (Tag str)
-tagCloseAny = optional text >> tagCloseAny_
+balancedTags_ :: (Monad m, StringLike str, Show str)
+              => TagOpenSelector
+              -> P.ParsecT [Tag str] u m (S.Seq (Tag str))
+balancedTags_ tagS = do
+  openTag <- tagOpen_ tagS
+  tailTags <- tagTail openTag
+  return $ openTag <| tailTags
 
--- | Return the parsed tag.
-tagText :: (Monad m, Show str, Eq str) => str -> P.ParsecT [Tag str] u m (Tag str)
-tagText str = satisfy $ \tag ->
-  case tag of
-    TagText text _ -> str == text
-    _              -> False
+tagTail :: (Monad m, StringLike str, Show str)
+        => Tag str
+        -> P.ParsecT [Tag str] u m (S.Seq (Tag str))
+tagTail (TagOpen name _ _) = do
+  innerTags <- P.many $ try notMatchingClose
+  matchingClose <- tagClose_ closeS
+  return $ mconcat innerTags |> matchingClose
+    where closeS = TagCloseSelector $ toString name
+          notMatchingClose =   ( (balancedTags_ anyOpenTag)
+                             <|> S.singleton <$> (notParse (tagClose_ closeS) >> tag)
+                               )
 
-tagTextAny :: (Monad m, Show str) => P.ParsecT [Tag str] u m (Tag str)
-tagTextAny = satisfy $ \tag ->
-  case tag of
-    TagText text _ -> True
-    _              -> False
+balancedTags :: (Monad m, StringLike str, Show str)
+             => TagOpenSelector
+             -> P.ParsecT [Tag str] u m [Tag str]
+balancedTags tagS = toList <$> balancedTags_ tagS
 
--- | Parse and return the text of a text tag.
-text :: (Monad m, Show str) => P.ParsecT [Tag str] u m str
-text = do
-  tag <- tagTextAny
-  case tag of
-    TagText t _ -> return t
-    _other      -> fail "Could not find a text tag."
+anyOpenTag :: TagOpenSelector
+anyOpenTag = AnyOpenTag []
+
+anyCloseTag :: TagCloseSelector
+anyCloseTag = AnyCloseTag
+
+anyValue :: AttrValue
+anyValue = AnyAttr
 
 -- | @skip p@ produces a parser which will ignore the output of @p@.
 skip :: P.Stream s m t => P.ParsecT s u m a -> P.ParsecT s u m ()
 skip p = p >> return ()
+
+innerText :: StringLike str => [Tag str] -> str
+innerText tags = fromString $ toList $ mconcat $ fmap tagInner tags
+  where tagInner (TagOpen "br" _ _) = S.singleton '\n'
+        tagInner (TagText text _)   = S.fromList $ toString text
+        tagInner _other             = S.empty
