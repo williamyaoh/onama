@@ -34,6 +34,23 @@ module Text.HTML.Onama
 
   , tag
   , satisfy
+
+  , TagOpenSelector(..)
+  , TagCloseSelector(..)
+  , AttrName(..)
+  , AttrValue(..)
+  , AttrSelector(..)
+
+  , (@:), (@=)
+
+  , tagOpen_, tagOpen
+  , tagClose_, tagClose
+  , tagText
+  , balancedTags
+  , anyOpenTag, anyCloseTag, anyValue
+  , innerText
+
+  , skip
   )
 where
 
@@ -193,7 +210,7 @@ tagOpen_ tagS =
 tagOpen :: (Monad m, StringLike str, Show str)
         => TagOpenSelector
         -> P.ParsecT [Tag str] u m (Tag str)
-tagOpen tagS = optional tagText >> tagOpen_ tagS
+tagOpen tagS = try (optional tagText >> tagOpen_ tagS)
 
 tagClose_ :: (Monad m, StringLike str, Show str)
           => TagCloseSelector
@@ -209,7 +226,7 @@ tagClose_ tagS =
 tagClose :: (Monad m, StringLike str, Show str)
          => TagCloseSelector
          -> P.ParsecT [Tag str] u m (Tag str)
-tagClose tagS = optional tagText >> tagClose_ tagS
+tagClose tagS = try (optional tagText >> tagClose_ tagS)
 
 -- | Take a parser, return a parser which only succeeds if the given parser
 --   fails. Consumes no input.
@@ -249,7 +266,7 @@ tagTail (TagOpen name _ _) = do
 balancedTags :: (Monad m, StringLike str, Show str)
              => TagOpenSelector
              -> P.ParsecT [Tag str] u m [Tag str]
-balancedTags tagS = toList <$> balancedTags_ tagS
+balancedTags tagS = optional tagText >> toList <$> balancedTags_ tagS
 
 anyOpenTag :: TagOpenSelector
 anyOpenTag = AnyOpenTag []
