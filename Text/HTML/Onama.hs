@@ -46,6 +46,7 @@ module Text.HTML.Onama
   , tagOpen_, tagOpen
   , tagClose_, tagClose
   , tagText
+  , voidElement
   , balancedTags
   , anyOpenTag, anyCloseTag, anyValue
   , innerText
@@ -243,6 +244,35 @@ tagText = P.tokenPrim show updatePos $ \tag -> case tag of
   TagText text _ -> Just text
   _other         -> Nothing
 
+-- | Certain HTML elements are self closing. In addition, they can show
+--   up /without/ their closing slash. For these, we just want to go over
+--   their opening tag.
+--   These elements are void, according to the W3C spec:
+--   <https://www.w3.org/TR/2012/WD-html-markup-20121025/syntax.html#syntax-elements>
+--
+--   * area
+--   * base
+--   * br
+--   * col
+--   * command
+--   * embed
+--   * hr
+--   * img
+--   * input
+--   * keygen
+--   * link
+--   * meta
+--   * param
+--   * source
+--   * track
+--   * wbr
+voidElement :: (Monad m, StringLike str, Show str) => P.ParsecT [Tag str] u m (Tag str)
+voidElement = choice $ fmap tagOpen_ [ "area", "base", "br", "col", "command"
+                                     , "embed", "hr", "img", "input", "keygen"
+                                     , "link", "meta", "param", "source", "track"
+                                     , "wbr"
+                                     ]
+
 balancedTags_ :: (Monad m, StringLike str, Show str)
               => TagOpenSelector
               -> P.ParsecT [Tag str] u m (S.Seq (Tag str))
@@ -259,8 +289,9 @@ tagTail (TagOpen name _ _) = do
   matchingClose <- tagClose_ closeS
   return $ mconcat innerTags |> matchingClose
     where closeS = TagCloseSelector $ toString name
-          notMatchingClose =   ( (balancedTags_ anyOpenTag)
-                             <|> S.singleton <$> (notParse (tagClose_ closeS) >> tag)
+          notMatchingClose =   ( S.singleton <$> (notParse (tagClose_ closeS) >> tag)
+                             <|> S.singleton <$> voidElement
+                             <|> (balancedTags_ anyOpenTag)
                                )
 
 balancedTags :: (Monad m, StringLike str, Show str)
