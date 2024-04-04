@@ -3,7 +3,7 @@
 {-|
   Module: Text.HTML.Onama
   Description: Parsec extended with functions to handle HTML parsing.
-  Copyright: (c) William Yao, 2017
+  Copyright: (c) William Yao, 2017-2024
   License: BSD-3
   Maintainer: williamyaoh@gmail.com
   Stability: experimental
