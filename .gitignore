@@ -1,4 +1,7 @@
+# Editor outputs.
 *~
-#~#
+\#~\#
 
-dist
+# Build outputs.
+dist/
+dist-newstyle/
