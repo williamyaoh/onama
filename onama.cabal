@@ -1,7 +1,7 @@
 cabal-version:       >=1.10
 
 name: onama
-version: 0.2.2.1
+version: 0.2.3.0
 synopsis: HTML-parsing primitives for Parsec.
 description: Provides Parsec primitives for parsing various HTML entities.
              Requires Parsec in order to use and combine them.
