@@ -23,7 +23,7 @@ library
     Text.HTML.Onama
   build-depends:
       base ==4.*
-    , tagsoup
+    , tagsoup ==0.14.*
     , parsec
     , containers
   hs-source-dirs: src/lib
